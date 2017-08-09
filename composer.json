@@ -8,9 +8,13 @@
         }
     ],
     "bin": [
+        "apply_patches.sh",
+        "build.sh",
+        "cleanup.sh",
+        "deploy.sh",
         "install.sh",
-        "n98-magerun.phar",
-	"modman",
-	"systemstorage_import.sh"
+        "phplint.sh",
+	    "systemstorage_import.sh",
+        "xmllint.sh"
     ]
 }
