@@ -15,6 +15,7 @@
         "install.sh",
         "phplint.sh",
 	    "systemstorage_import.sh",
+        "systemstorage_export.sh",
         "xmllint.sh"
     ]
 }

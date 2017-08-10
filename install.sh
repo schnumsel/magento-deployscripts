@@ -4,27 +4,66 @@ VALID_ENVIRONMENTS=" production staging devbox latest deploy integration stage q
 
 MY_PATH=`dirname $(readlink -f "$0")`
 RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
+DOCUMENTROOT=htdocs
+SYSTEM_STORAGE_PATH=${RELEASEFOLDER}/../backup
+
+function safeLink {
+
+    if [ -d "${SHAREDFOLDER}/$1" ]; then
+        if [ -d "${RELEASEFOLDER}/${DOCUMENTROOT}/$1" ]; then
+            echo "${SHAREDFOLDER}/$1 and ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 exist, removing later.."
+            rm -rf ${RELEASEFOLDER}/${DOCUMENTROOT}/$1
+        fi
+        else
+            if [ -d ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 ]; then
+                echo "Moving ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 to ${SHAREDFOLDER}/$1"
+                mv ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 ${SHAREDFOLDER}/$1
+            else
+                echo "Neither ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 nor ${SHAREDFOLDER}/$1 exists.."
+                exit 1;
+            fi
+    fi
+
+    echo "Linking ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 to ${SHAREDFOLDER}/$1"
+    ln -s "${SHAREDFOLDER}/$1" "${RELEASEFOLDER}/${DOCUMENTROOT}/$1"  || { echo "Error while linking to shared media directory" ; exit 1; }
+
+}
 
 function usage {
     echo "Usage:"
-    echo " $0 -e <environment> [-r <releaseFolder>] [-s]"
-    echo " -e Environment (e.g. production, staging, devbox,...)"
+    echo " $0 -e <environment> [-r <releaseFolder>] [-d <documentRoot> ] [-a <masterSystem>] "
+    echo "            [-y <systemStorageBasePath>] [-p <project>]".
+    echo "            [-Y <systemStorageRootPath>] [-s] [-m] [-c]"
+    echo " -e Environment (mandatory e.g. production, staging, devbox,...)"
+    echo " -r releaseFolder (optional,different release folder, other than project root)"
+    echo " -d documentRoot (optional, different document root, other than htdocs)"
+    echo " -a masterSystem (optional, if different than settings in Configuration/mastersystem.txt)"
+    echo " -y systemStoragePath (optional, if different than ../backup)"
+    echo " -p project (optional, if different than settings in Configuration/project.txt)"
     echo " -s If set the systemstorage will not be imported"
+    echo " -c If set shared folder settings will not be applied"
+    echo " -m If set modman will not be aplied, use for production and staging if build is prepared without symlinks"
     echo ""
     exit $1
 }
 
-while getopts 'e:r:s' OPTION ; do
+while getopts 'e:r:d:a:y:p:scm' OPTION ; do
 case "${OPTION}" in
         e) ENVIRONMENT="${OPTARG}";;
+        a) MASTER_SYSTEM="${OPTARG}";;
         r) RELEASEFOLDER=`echo "${OPTARG}" | sed -e "s/\/*$//" `;; # delete last slash
+        d) DOCUMENTROOT=`echo "${OPTARG}" | sed -e "s/\/*$//" `;;
+        y) SYSTEM_STORAGE_PATH=`echo "${OPTARG}" | sed -e "s/\/*$//" `;;
+        p) PROJECT="${OPTARG}";;
         s) SKIPIMPORTFROMSYSTEMSTORAGE=true;;
+        c) SKIPSHAREDFOLDERCONFIG=true;;
+        m) SKIPMODMAN=true;;
         \?) echo; usage 1;;
     esac
 done
 
-if [ ! -f "${RELEASEFOLDER}/htdocs/index.php" ] ; then echo "Invalid release folder" ; exit 1; fi
-if [ ! -f "${RELEASEFOLDER}/tools/n98-magerun.phar" ] ; then echo "Could not find n98-magerun.phar" ; exit 1; fi
+if [ ! -f "${RELEASEFOLDER}/${DOCUMENTROOT}/index.php" ] ; then echo "Invalid release folder" ; exit 1; fi
+if [ ! -f "${RELEASEFOLDER}/tools/n98-magerun" ] ; then echo "Could not find n98-magerun" ; exit 1; fi
 if [ ! -f "${RELEASEFOLDER}/tools/apply.php" ] ; then echo "Could not find apply.php" ; exit 1; fi
 if [ ! -f "${RELEASEFOLDER}/Configuration/settings.csv" ] ; then echo "Could not find settings.csv" ; exit 1; fi
 
@@ -36,41 +75,39 @@ else
     echo "ERROR: Illegal environment code" ; exit 1;
 fi
 
-
 echo
 echo "Linking to shared directories"
 echo "-----------------------------"
 if [[ -n ${SKIPSHAREDFOLDERCONFIG} ]]  && ${SKIPSHAREDFOLDERCONFIG} ; then
     echo "Skipping shared directory config because parameter was set"
 else
-    SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
+
+    # Added one level lower, so shared folder can be on the same level as project folder (ww)
+    SHAREDFOLDER="${RELEASEFOLDER}/../shared"
     if [ ! -d "${SHAREDFOLDER}" ] ; then
-        echo "Could not find '../../shared'. Trying '../../../shared' now"
-        SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
+        echo "Could not find '../shared'. Trying '../../shared' now"
+        SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
+        if [ ! -d "${SHAREDFOLDER}" ] ; then
+            echo "Could not find '../../shared'. Trying '../../../shared' now"
+            SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
+        fi
     fi
 
     if [ ! -d "${SHAREDFOLDER}" ] ; then echo "Shared directory ${SHAREDFOLDER} not found"; exit 1; fi
-    if [ ! -d "${SHAREDFOLDER}/media" ] ; then echo "Shared directory ${SHAREDFOLDER}/media not found"; exit 1; fi
-    if [ ! -d "${SHAREDFOLDER}/var" ] ; then echo "Shared directory ${SHAREDFOLDER}/var not found"; exit 1; fi
 
-    if [ -d "${RELEASEFOLDER}/htdocs/media" ]; then echo "Found existing media folder that shouldn't be there"; exit 1; fi
-    if [ -d "${RELEASEFOLDER}/htdocs/var" ]; then echo "Found existing var folder that shouldn't be there"; exit 1; fi
-
-    echo "Setting symlink (${RELEASEFOLDER}/htdocs/media) to shared media folder (${SHAREDFOLDER}/media)"
-    ln -s "${SHAREDFOLDER}/media" "${RELEASEFOLDER}/htdocs/media"  || { echo "Error while linking to shared media directory" ; exit 1; }
-
-    echo "Setting symlink (${RELEASEFOLDER}/htdocs/var) to shared var folder (${SHAREDFOLDER}/var)"
-    ln -s "${SHAREDFOLDER}/var" "${RELEASEFOLDER}/htdocs/var"  || { echo "Error while linking to shared var directory" ; exit 1; }
+    safeLink media
+    safeLink var
 fi
-
 
 echo
 echo "Running modman"
 echo "--------------"
-cd "${RELEASEFOLDER}" || { echo "Error while switching to release directory" ; exit 1; }
-tools/modman deploy-all --force || { echo "Error while running modman" ; exit 1; }
-
-
+if [[ -n ${SKIPMODMAN} ]]  && ${SKIPMODMAN} ; then
+    echo "Skipping modman because parameter was set"
+else
+    cd "${RELEASEFOLDER}" || { echo "Error while switching to release directory" ; exit 1; }
+    tools/modman deploy-all --force || { echo "Error while running modman" ; exit 1; }
+fi
 
 echo
 echo "Systemstorage"
@@ -97,64 +134,53 @@ else
         fi
 
         # Apply db settings
-        cd "${RELEASEFOLDER}/htdocs" || { echo "Error while switching to htdocs directory" ; exit 1; }
+        cd "${RELEASEFOLDER}/${DOCUMENTROOT}" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
         ../tools/apply.php "${ENVIRONMENT}" ../Configuration/settings.csv --groups db || { echo "Error while applying db settings" ; exit 1; }
 
-        if [ -z "${SYSTEM_STORAGE_ROOT_PATH}" ] ; then
-            SYSTEM_STORAGE_ROOT_PATH="/home/systemstorage/systemstorage/${PROJECT}/backup/${MASTER_SYSTEM}"
-        fi
 
         # Import systemstorage
-        ../tools/systemstorage_import.sh -p "${RELEASEFOLDER}/htdocs/" -s "${SYSTEM_STORAGE_ROOT_PATH}" || { echo "Error while importing systemstorage"; exit 1; }
+        ../tools/systemstorage_import.sh -p "${RELEASEFOLDER}/${DOCUMENTROOT}/" -s "${SYSTEM_STORAGE_PATH}" || { echo "Error while importing systemstorage"; exit 1; }
     fi
 
 fi
 
-
 echo
 echo "Applying settings"
 echo "-----------------"
-cd "${RELEASEFOLDER}/htdocs" || { echo "Error while switching to htdocs directory" ; exit 1; }
+cd "${RELEASEFOLDER}/${DOCUMENTROOT}" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
 ../tools/apply.php ${ENVIRONMENT} ../Configuration/settings.csv || { echo "Error while applying settings" ; exit 1; }
 echo
 
-
-
-if [ -f "${RELEASEFOLDER}/htdocs/shell/aoe_classpathcache.php" ] ; then
+if [ -f "${RELEASEFOLDER}/${DOCUMENTROOT}/shell/aoe_classpathcache.php" ] ; then
     echo
     echo "Setting revalidate class path cache flag (Aoe_ClassPathCache)"
     echo "-------------------------------------------------------------"
-    cd "${RELEASEFOLDER}/htdocs/shell" || { echo "Error while switching to htdocs/shell directory" ; exit 1; }
+    cd "${RELEASEFOLDER}/${DOCUMENTROOT}/shell" || { echo "Error while switching to ${DOCUMENTROOT}/shell directory" ; exit 1; }
     php aoe_classpathcache.php -action setRevalidateFlag || { echo "Error while revalidating Aoe_ClassPathCache" ; exit 1; }
 fi
-
-
 
 echo
 echo "Triggering Magento setup scripts via n98-magerun"
 echo "------------------------------------------------"
-cd -P "${RELEASEFOLDER}/htdocs/" || { echo "Error while switching to htdocs directory" ; exit 1; }
+cd -P "${RELEASEFOLDER}/${DOCUMENTROOT}/" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
 ../tools/n98-magerun.phar sys:setup:run || { echo "Error while triggering the update scripts using n98-magerun" ; exit 1; }
 
+echo
+echo "Cache"
+echo "-----"
+
+if [ "${ENVIRONMENT}" == "devbox" ] || [ "${ENVIRONMENT}" == "latest" ] || [ "${ENVIRONMENT}" == "deploy" ] ; then
+    cd -P "${RELEASEFOLDER}/${DOCUMENTROOT}/" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
+    ../tools/n98-magerun cache:flush || { echo "Error while flushing cache using n98-magerun" ; exit 1; }
+    ../tools/n98-magerun cache:enable || { echo "Error while enabling cache using n98-magerun" ; exit 1; }
+fi
 
 
-# Cache should be handled by customizing the id_prefix!
-#echo
-#echo "Cache"
-#echo "-----"
-#
-#if [ "${ENVIRONMENT}" == "devbox" ] || [ "${ENVIRONMENT}" == "latest" ] || [ "${ENVIRONMENT}" == "deploy" ] ; then
-#    cd -P "${RELEASEFOLDER}/htdocs/" || { echo "Error while switching to htdocs directory" ; exit 1; }
-#    ../tools/n98-magerun.phar cache:flush || { echo "Error while flushing cache using n98-magerun" ; exit 1; }
-#    ../tools/n98-magerun.phar cache:enable || { echo "Error while enabling cache using n98-magerun" ; exit 1; }
-#fi
-
-
-if [ -f "${RELEASEFOLDER}/htdocs/maintenance.flag" ] ; then
+if [ -f "${RELEASEFOLDER}/${DOCUMENTROOT}/maintenance.flag" ] ; then
     echo
     echo "Deleting maintenance.flag"
     echo "-------------------------"
-    rm "${RELEASEFOLDER}/htdocs/maintenance.flag" || { echo "Error while deleting the maintenance.flag" ; exit 1; }
+    rm "${RELEASEFOLDER}/${DOCUMENTROOT}/maintenance.flag" || { echo "Error while deleting the maintenance.flag" ; exit 1; }
 fi
 
 echo
