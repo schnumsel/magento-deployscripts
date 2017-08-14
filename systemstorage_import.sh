@@ -4,7 +4,7 @@
 MY_PATH=`dirname $(readlink -f "$0")`
 RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
 DOCUMENTROOT=htdocs
-SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../backup
+SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../../backup
 SOURCE_DIR="${RELEASEFOLDER}/tools"
 DOCUMENTROOT=htdocs
 DATABASETYPE=dev

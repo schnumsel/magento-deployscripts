@@ -4,7 +4,7 @@
 MY_PATH=`dirname $(readlink -f "$0")`
 RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
 DOCUMENTROOT=htdocs
-SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../backup
+SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../../backup
 SOURCE_DIR="${RELEASEFOLDER}/tools"
 DOCUMENTROOT=htdocs
 
@@ -43,16 +43,13 @@ $n98 db:dump --compression=gz ${SYSTEMSTORAGEPATH}/full.sql.gz
 
 # archive media
 # find media folder
-MEDIAFOLDER="${RELEASEFOLDER}/../shared/media"
+
+MEDIAFOLDER="${RELEASEFOLDER}/../../shared/media"
 if [ ! -d "${MEDIAFOLDER}" ] ; then
-    echo "Could not find '../shared/media'. Trying '../../shared/media' now"
-    MEDIAFOLDER="${RELEASEFOLDER}/../../shared/media"
-    if [ ! -d "${MEDIAFOLDER}" ] ; then
-        echo "Could not find '../../shared/media'. Trying '../../../shared/media' now"
-        MEDIAFOLDER="${RELEASEFOLDER}/../../../shared/media";
-        if [ ! -d "${SHAREDFOLDER}" ]; then
-            MEDIAFOLDER="${RELEASEFOLDER}/${DOCUMENTROOT}/media"
-        fi
+    echo "Could not find '../../shared/media'. Trying '../../../shared/media' now"
+    MEDIAFOLDER="${RELEASEFOLDER}/../../../shared/media";
+    if [ ! -d "${SHAREDFOLDER}" ]; then
+        MEDIAFOLDER="${RELEASEFOLDER}/${DOCUMENTROOT}/media"
     fi
 fi
 

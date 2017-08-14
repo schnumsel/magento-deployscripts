@@ -82,15 +82,10 @@ if [[ -n ${SKIPSHAREDFOLDERCONFIG} ]]  && ${SKIPSHAREDFOLDERCONFIG} ; then
     echo "Skipping shared directory config because parameter was set"
 else
 
-    # Added one level lower, so shared folder can be on the same level as project folder (ww)
-    SHAREDFOLDER="${RELEASEFOLDER}/../shared"
+    SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
     if [ ! -d "${SHAREDFOLDER}" ] ; then
-        echo "Could not find '../shared'. Trying '../../shared' now"
-        SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
-        if [ ! -d "${SHAREDFOLDER}" ] ; then
-            echo "Could not find '../../shared'. Trying '../../../shared' now"
-            SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
-        fi
+        echo "Could not find '../../shared'. Trying '../../../shared' now"
+        SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
     fi
 
     if [ ! -d "${SHAREDFOLDER}" ] ; then echo "Shared directory ${SHAREDFOLDER} not found"; exit 1; fi
