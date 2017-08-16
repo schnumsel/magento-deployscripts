@@ -4,7 +4,7 @@
 MY_PATH=`dirname $(readlink -f "$0")`
 RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
 DOCUMENTROOT=htdocs
-SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../../backup
+SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../backup
 SOURCE_DIR="${RELEASEFOLDER}/tools"
 DOCUMENTROOT=htdocs
 
@@ -41,22 +41,46 @@ n98="/usr/bin/php -d apc.enable_cli=0 ${SOURCE_DIR}/n98-magerun --root-dir=${PRO
 $n98 db:dump --compression=gz --strip="@stripped @development" ${SYSTEMSTORAGEPATH}/dev.sql.gz
 $n98 db:dump --compression=gz ${SYSTEMSTORAGEPATH}/full.sql.gz
 
-# archive media
-# find media folder
-
-MEDIAFOLDER="${RELEASEFOLDER}/../../shared/media"
-if [ ! -d "${MEDIAFOLDER}" ] ; then
-    echo "Could not find '../../shared/media'. Trying '../../../shared/media' now"
-    MEDIAFOLDER="${RELEASEFOLDER}/../../../shared/media";
-    if [ ! -d "${SHAREDFOLDER}" ]; then
-        MEDIAFOLDER="${RELEASEFOLDER}/${DOCUMENTROOT}/media"
+# archive shared
+SHAREDBASE="${RELEASEFOLDER}/../shared"
+if [ ! -d "${SHAREDBASE}" ] ; then
+    echo "Could not find '../shared'. Trying '../../shared' now"
+    SHAREDBASE="${RELEASEFOLDER}/../../shared"
+    if [ ! -d "${SHAREDBASE}" ] ; then
+        echo "Could not find '../../shared'. Trying '../../../shared' now"
+        SHAREDBASE="${RELEASEFOLDER}/../../../shared";
+        if [ ! -d "${SHAREDBASE}" ]; then
+            SHAREDBASE="${RELEASEFOLDER}/${DOCUMENTROOT}"
+        fi
     fi
 fi
 
-if [ ! -d "${MEDIAFOLDER}" ] ; then echo "Media folder ${MEDIAFOLDER} not found"; exit 1; fi
+LIST=""
+
+if [ -f "${RELEASEFOLDER}/Configuration/shared.txt" ]; then
+    for target in `cat ${RELEASEFOLDER}/Configuration/shared.txt`; do
+        if [[ ${target} != "var" ]]; then
+            if [[ ${LIST} == "" ]]; then
+                LIST=${target}
+            else
+                LIST="${LIST} ${target}"
+            fi
+        fi
+    done
+else
+    LIST="media"
+fi
 
 OLD=`pwd`
-cd ${MEDIAFOLDER}
-tar -czf ${SYSTEMSTORAGEPATH}/media.tgz .
+cd ${SHAREDBASE}
+tar -czf ${SYSTEMSTORAGEPATH}/shared.tgz \
+    --exclude-vcs \
+    --exclude=media/catalog/product/cache/* \
+    --exclude=media/tmp/* \
+    --exclude=media/js/* \
+    --exclude=media/css/* \
+    --exclude=media/css_secure/* \
+     ${LIST}
+
 cd ${OLD}
 

@@ -4,9 +4,8 @@
 MY_PATH=`dirname $(readlink -f "$0")`
 RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
 DOCUMENTROOT=htdocs
-SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../../backup
+SYSTEMSTORAGEPATH=${RELEASEFOLDER}/../backup
 SOURCE_DIR="${RELEASEFOLDER}/tools"
-DOCUMENTROOT=htdocs
 DATABASETYPE=dev
 
 function usage {
@@ -37,7 +36,7 @@ if [ ! -f "${PROJECT_WEBROOT}/index.php" ] ; then echo "Invalid ${PROJECT_WEBROO
 
 if [ ! -f "${SYSTEMSTORAGEPATH}/${DATABASETYPE}.sql.gz" ]; then echo "Could not find database dump ${SYSTEMSTORAGEPATH}/${DATABASETYPE}.sql.gz"; usage 1; fi;
 
-n98="/usr/bin/php -d apc.enable_cli=0 ${SOURCE_DIR}/n98-magerun.phar --root-dir=${PROJECT_WEBROOT}"
+n98="/usr/bin/php -d apc.enable_cli=0 ${SOURCE_DIR}/n98-magerun --root-dir=${PROJECT_WEBROOT}"
 
 # Importing database...
 echo "Dropping all tables"
@@ -46,34 +45,41 @@ $n98 -q db:drop --tables --force || { echo "Error while dropping all tables"; ex
 echo "Import database dump ${SYSTEMSTORAGEPATH}/${DATABASETYPE}.sql.gz"
 $n98 -q db:import --compression=gzip "${SYSTEMSTORAGEPATH}/${DATABASETYPE}.sql.gz" ||  { echo "Error while importing dump"; exit 1; }
 
-TMPDIR=`mktemp -d`
-OLD=`pwd`
-cd TMPDIR
+if [ ! -f "${SYSTEMSTORAGEPATH}/shared.tgz" ]; then echo "Could not find shared.tgz"; usage 1; fi;
 
+# restore shared
+SHAREDBASE="${RELEASEFOLDER}/../shared"
+if [ ! -d "${SHAREDBASE}" ] ; then
+    echo "Could not find '../shared'. Trying '../../shared' now"
+    SHAREDBASE="${RELEASEFOLDER}/../../shared"
+    if [ ! -d "${SHAREDBASE}" ] ; then
+        echo "Could not find '../../shared'. Trying '../../../shared' now"
+        SHAREDBASE="${RELEASEFOLDER}/../../../shared";
+        if [ ! -d "${SHAREDBASE}" ]; then
+            SHAREDBASE="${RELEASEFOLDER}/${DOCUMENTROOT}"
+        fi
+    fi
+fi
 
-echo "Extract media folder"
-tar -xzf "${SYSTEMSTORAGEPATH}/media.tgz"
+cd $SHAREDBASE;
 
-echo "Sync media folder"
+if [ -f "${RELEASEFOLDER}/Configuration/shared.txt" ]; then
+    for target in `cat ${RELEASEFOLDER}/Configuration/shared.txt`; do
+        if [[ ${target} != "var" ]]; then
+            if [[ ${LIST} == "" ]]; then
+                LIST=${target}
+            else
+                LIST="${LIST} ${target}"
+            fi
+        fi
+    done
+else
+    LIST="media"
+fi
 
-rsync \
-    --archive \
-    --force \
-    --no-o --no-p --no-g \
-    --omit-dir-times \
-    --ignore-errors \
-    --partial \
-    --exclude=/catalog/product/cache/ \
-    --exclude=/tmp/ \
-    --exclude=.svn/ \
-    --exclude=*/.svn/ \
-    --exclude=.git/ \
-    --exclude=*/.git/ \
-    "${TMPDIR}/" "${PROJECT_WEBROOT}/media/"
+pwd
+echo "Deleting ${LIST}"
+rm -rf ${LIST}
 
-cd ${OLD}
-
-echo "Remove temp folder"
-rm -rf ${TMPDIR}
-
-echo "Finished importing system storage"
+echo "Extracting shared.tgz"
+tar -xzf ${SYSTEMSTORAGEPATH}/shared.tgz

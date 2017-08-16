@@ -7,33 +7,132 @@ RELEASEFOLDER=$(readlink -f "${MY_PATH}/../../..")
 DOCUMENTROOT=htdocs
 SYSTEM_STORAGE_PATH=${RELEASEFOLDER}/../backup
 
-function safeLink {
+function normalizePath {
 
-    if [ -d "${SHAREDFOLDER}/$1" ]; then
-        if [ -d "${RELEASEFOLDER}/${DOCUMENTROOT}/$1" ]; then
-            echo "${SHAREDFOLDER}/$1 and ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 exist, removing later.."
-            rm -rf ${RELEASEFOLDER}/${DOCUMENTROOT}/$1
-        fi
-        else
-            if [ -d ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 ]; then
-                echo "Moving ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 to ${SHAREDFOLDER}/$1"
-                mv ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 ${SHAREDFOLDER}/$1
-            else
-                echo "Neither ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 nor ${SHAREDFOLDER}/$1 exists.."
-                exit 1;
-            fi
+    # Remove all /./ sequences.
+    local path=${1//\/.\//\/}
+
+    # Remove dir/.. sequences.
+    while [[ $path =~ ([^/][^/]*/\.\./) ]]
+    do
+        path=${path/${BASH_REMATCH[0]}/}
+    done
+    echo $path
+}
+
+function realPath {
+
+    local HERE=$PWD
+    if [ -d $1 ]; then
+        cd $1
+        THERE=$( pwd -P )
+        echo ${THERE}
     fi
-
-    echo "Linking ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 to ${SHAREDFOLDER}/$1"
-    ln -s "${SHAREDFOLDER}/$1" "${RELEASEFOLDER}/${DOCUMENTROOT}/$1"  || { echo "Error while linking to shared media directory" ; exit 1; }
+    cd ${HERE}
 
 }
+
+function relativePath {
+
+    # both $1 and $2 are absolute paths beginning with /
+    # returns relative path to $2/$target from $1/$source
+    source=$1
+    target=$2
+
+    common_part=$source # for now
+    result="" # for now
+
+    while [[ "${target#$common_part}" == "${target}" ]]; do
+        # no match, means that candidate common part is not correct
+        # go up one level (reduce common part)
+        common_part="$(dirname $common_part)"
+        # and record that we went back, with correct / handling
+        if [[ -z $result ]]; then
+            result=".."
+        else
+            result="../$result"
+        fi
+    done
+
+    if [[ $common_part == "/" ]]; then
+        # special case for root (no common path)
+        result="$result/"
+    fi
+
+    # since we now have identified the common part,
+    # compute the non-common part
+    forward_part="${target#$common_part}"
+
+    # and now stick all parts together
+    if [[ -n $result ]] && [[ -n $forward_part ]]; then
+        result="$result$forward_part"
+    elif [[ -n $forward_part ]]; then
+        # extra slash removal
+        result="${forward_part:1}"
+    fi
+
+    echo $result
+}
+
+function safeLink {
+
+    local shared=$( normalizePath ${SHAREDFOLDER}/$1 )
+    local linked=$( normalizePath ${RELEASEFOLDER}/${DOCUMENTROOT}/$1 )
+
+    local shared_base=$( dirname $shared )
+    local linked_base=$( dirname $linked )
+
+    local dir_name=$( basename $1)
+
+    #if shared folder exists
+    if [ -d "${shared}" ]; then
+
+        # if folder also exist in document root
+        # remove folder in document root
+        if [ -d "${linked}" ]; then
+            echo "Shared ($shared) and linked (${linked}) folders exist, removing linked.."
+            rm -rf ${linked}
+        fi
+
+    # if shared folder does not exists
+    else
+
+        # if folder exists in document root
+        if [ -d ${linked} ]; then
+            echo "Moving existing linked folder (${linked}) to shared folder (${shared})"
+            if [ ! -d ${shared_base} ]; then
+                mkdir -p ${shared_base}
+            fi
+            mv ${linked} ${shared_base}
+        else
+            echo "Neither shared (${shared}) nor linked folder (${linked}) exist, verify your configuration"
+            exit 1;
+        fi
+    fi
+
+
+    echo
+
+    if [ ! -d ${linked_base} ]; then
+        "mkdir -p ${linked_base}"
+    fi
+
+    local real_linked_base=$( realPath "${linked_base}" )
+
+    rel_path=$( relativePath "${real_linked_base}" "${shared}" )
+
+    HERE=${PWD}
+    cd ${real_linked_base}
+    ln -sf ${rel_path} . || { echo "Error while linking to shared media directory" ; exit 1; }
+    cd ${HERE}
+}
+
 
 function usage {
     echo "Usage:"
     echo " $0 -e <environment> [-r <releaseFolder>] [-d <documentRoot> ] [-a <masterSystem>] "
     echo "            [-y <systemStorageBasePath>] [-p <project>]".
-    echo "            [-Y <systemStorageRootPath>] [-s] [-m] [-c]"
+    echo "            [-Y <systemStorageRootPath>] [-s] [-c]"
     echo " -e Environment (mandatory e.g. production, staging, devbox,...)"
     echo " -r releaseFolder (optional,different release folder, other than project root)"
     echo " -d documentRoot (optional, different document root, other than htdocs)"
@@ -42,12 +141,11 @@ function usage {
     echo " -p project (optional, if different than settings in Configuration/project.txt)"
     echo " -s If set the systemstorage will not be imported"
     echo " -c If set shared folder settings will not be applied"
-    echo " -m If set modman will not be aplied, use for production and staging if build is prepared without symlinks"
     echo ""
     exit $1
 }
 
-while getopts 'e:r:d:a:y:p:scm' OPTION ; do
+while getopts 'e:r:d:a:y:p:sc' OPTION ; do
 case "${OPTION}" in
         e) ENVIRONMENT="${OPTARG}";;
         a) MASTER_SYSTEM="${OPTARG}";;
@@ -57,7 +155,6 @@ case "${OPTION}" in
         p) PROJECT="${OPTARG}";;
         s) SKIPIMPORTFROMSYSTEMSTORAGE=true;;
         c) SKIPSHAREDFOLDERCONFIG=true;;
-        m) SKIPMODMAN=true;;
         \?) echo; usage 1;;
     esac
 done
@@ -82,26 +179,25 @@ if [[ -n ${SKIPSHAREDFOLDERCONFIG} ]]  && ${SKIPSHAREDFOLDERCONFIG} ; then
     echo "Skipping shared directory config because parameter was set"
 else
 
-    SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
+    # Added one level lower, so shared folder can be on the same level as project folder (ww)
+    SHAREDFOLDER="${RELEASEFOLDER}/../shared"
     if [ ! -d "${SHAREDFOLDER}" ] ; then
-        echo "Could not find '../../shared'. Trying '../../../shared' now"
-        SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
+        echo "Could not find '../shared'. Trying '../../shared' now"
+        SHAREDFOLDER="${RELEASEFOLDER}/../../shared"
+        if [ ! -d "${SHAREDFOLDER}" ] ; then
+            echo "Could not find '../../shared'. Trying '../../../shared' now"
+            SHAREDFOLDER="${RELEASEFOLDER}/../../../shared";
+        fi
     fi
 
     if [ ! -d "${SHAREDFOLDER}" ] ; then echo "Shared directory ${SHAREDFOLDER} not found"; exit 1; fi
 
-    safeLink media
-    safeLink var
-fi
-
-echo
-echo "Running modman"
-echo "--------------"
-if [[ -n ${SKIPMODMAN} ]]  && ${SKIPMODMAN} ; then
-    echo "Skipping modman because parameter was set"
-else
-    cd "${RELEASEFOLDER}" || { echo "Error while switching to release directory" ; exit 1; }
-    tools/modman deploy-all --force || { echo "Error while running modman" ; exit 1; }
+    if [ -f "${RELEASEFOLDER}/Configuration/shared.txt" ]; then
+        for target in `cat ${RELEASEFOLDER}/Configuration/shared.txt`; do
+            echo "Linking $target to document root";
+            safeLink $target
+        done
+    fi
 fi
 
 echo
@@ -132,9 +228,8 @@ else
         cd "${RELEASEFOLDER}/${DOCUMENTROOT}" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
         ../tools/apply.php "${ENVIRONMENT}" ../Configuration/settings.csv --groups db || { echo "Error while applying db settings" ; exit 1; }
 
-
         # Import systemstorage
-        ../tools/systemstorage_import.sh -p "${RELEASEFOLDER}/${DOCUMENTROOT}/" -s "${SYSTEM_STORAGE_PATH}" || { echo "Error while importing systemstorage"; exit 1; }
+        ../tools/systemstorage_import.sh -d "${DOCUMENTROOT}/" -s "${SYSTEM_STORAGE_PATH}" || { echo "Error while importing systemstorage"; exit 1; }
     fi
 
 fi
@@ -158,7 +253,7 @@ echo
 echo "Triggering Magento setup scripts via n98-magerun"
 echo "------------------------------------------------"
 cd -P "${RELEASEFOLDER}/${DOCUMENTROOT}/" || { echo "Error while switching to ${DOCUMENTROOT} directory" ; exit 1; }
-../tools/n98-magerun.phar sys:setup:run || { echo "Error while triggering the update scripts using n98-magerun" ; exit 1; }
+../tools/n98-magerun sys:setup:run || { echo "Error while triggering the update scripts using n98-magerun" ; exit 1; }
 
 echo
 echo "Cache"
